@@ -10,15 +10,10 @@ from PyQt5 import QtGui, QtCore
 from PyQt5.QtCore import pyqtSignal, pyqtSlot, Qt, QThread, QMutex
 from PyQt5.QtGui import QPixmap, QCursor
 from PyQt5.QtWidgets import QMessageBox, QWidget, QApplication, QLabel, QGridLayout, QPushButton, QRadioButton, QMenuBar, QMenu, QComboBox
-# noinspection PyUnresolvedReferences
-#from detectie2 import detectie # import van een externe functie die de detectie doet
-
-mutex = QMutex()
 
 
 class VideoThread(QThread):
    change_pixmap_signal = pyqtSignal(np.ndarray)
-
 
    def __init__(self, tiny, poort):
       super().__init__()
@@ -30,14 +25,20 @@ class VideoThread(QThread):
    def run(self): # capture from web cam
       cap = cv2.VideoCapture(self.p, cv2.CAP_DSHOW) # self.p = 0 of 1
 
+      # TODO: kleur van 'hoed' veranderen naar dezelfde kleur als hoofd
       # constanten
-      # TODO: threshold aanpassen aan welke mode er gebruikt wordt: normal/tiny
       CONFIDENCE_THRESHOLD, NMS_THRESHOLD, COLORS = 0.2, 0.6, [(0, 255, 0), (255, 255, 0), (0, 0, 255)]  # BGR ipv RGB
 
-      if self.t:  # yolov4-tiny toepassen
+      if self.t:  # parameters van yolov4-tiny toepassen
+         shiftregister_length = 10
+         shiftregister_threshold = 7
+         max_counter = 100
          weightsPath, configPath = 'training1mrt/yolov4-tiny_training_best.weights', \
                                    'training1mrt/yolov4-tiny_testing.cfg'
-      else:  # gewone yolov4 toepassen
+      else:  # parameters van gewone yolov4 toepassen
+         shiftregister_length = 7
+         shiftregister_threshold = 5
+         max_counter = 10
          weightsPath, configPath = 'training1mrt/yolov4_training_best.weights', \
                                    'training1mrt/yolov4_testing.cfg'
       class_names = ['helm', 'hoed', 'hoofd']
@@ -45,83 +46,62 @@ class VideoThread(QThread):
       model = cv2.dnn_DetectionModel(net)  # dnn = deep neural network
       model.setInputParams(size=(416, 416), scale=1 / 255)
 
+      # initialisatie
       shiftregister = []
-      wait_teller = 0
-      helmdetectie = False
+      wait_counter = 0
+      openpoort = False
 
       while self._run_flag:
          ret, frame = cap.read()
 
-         # constante herhaling
+         # fps van de detectie berekenen
          start = time()
          classes, scores, boxes = model.detect(frame, CONFIDENCE_THRESHOLD, NMS_THRESHOLD)
          end = time()
 
-         helm = 1
+         helm = 1 # negatieve detectie initialiseren
          for (classid, score, box) in zip(classes, scores, boxes):
             color = COLORS[int(classid) % len(COLORS)]  # juiste kleur kiezen voor de bounding box
             label = '%s: %.2f' % (class_names[classid[0]], score)  # percentage van confidence
             cv2.rectangle(frame, box, color, 2)  # bounding box
-            cv2.rectangle(frame, (box[0], box[1]), (box[0] + 100, box[1] + 15), color,cv2.FILLED)  # achtergrondkleur voor benaming
+            cv2.rectangle(frame, (box[0], box[1]), (box[0] + 100, box[1] + 15), color, cv2.FILLED)  # achtergrondkleur voor benaming
             cv2.putText(frame, label, (box[0] + 1, box[1] + 13), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)  # benaming van de bounding box
 
-            helm = classid[0]
+            helm = classid[0] # helm is index van gedecteerde object
 
-            # shiftregister beslissingsstructuur
-            #shiftregister.append(1) if class_names[classid[0]] == "helm" else shiftregister.append(0)
-            #print(shiftregister)
-            #if len(shiftregister) > 10: shiftregister.pop(0)
-            #if shiftregister.count(1) >= 6: print("OKEEE")
-            #if shiftregister.count(1) >= 6:
-            #   print("OKEEE")
-         # TODO: webcamlabel aanpassen van rood naar groen (indien mogelijk)
+         # 1 = positieve detectie, 0 = negatieve detectie
+         decision = 1 if class_names[helm] == "helm" else 0
+
          # shiftregister beslissingsstructuur
-         oke = 0
-         if class_names[helm] == "helm":
-            oke = 1
-
-         if helmdetectie == False:
-            shiftregister.append(oke)
+         if openpoort == False: # poort is gesloten en blijven detecteren
+            lampkleur = (0, 0, 255) # rood (BGR)
+            shiftregister.append(decision) # shifregister van 0'en en 1'en
+            if len(shiftregister) > shiftregister_length:  # max lengte behouden
+               shiftregister.pop(0)
             print(shiftregister)
+         else: # poort is open en bepaalde tijd wachten
+            lampkleur = (0, 255, 0) # groen (BGR)
+            wait_counter += 1
+            if wait_counter >= max_counter:  # 5sec poort geopend laten
+               print("POORT SLUIT")
+               # reset van alle waarden
+               openpoort = False
+               shiftregister = []
+               wait_counter = 0
 
-         if len(shiftregister) > 10:
-            shiftregister.pop(0)
+         if shiftregister.count(1) >= shiftregister_threshold and openpoort == False: # poort openen als er 7 of meer positieve detecties zijn
+            print("OKEEE\nPOORT OPENT")
+            openpoort = True
 
-         if shiftregister.count(1) >= 7 and helmdetectie == False and len(shiftregister) == 10:
-            print("OKEEE")
-            print("POORT OPENT")
-            helmdetectie = True
-            a = App()
-            a.changeColour("groen")
+         # lampje label
+         cv2.circle(frame, (590,50), 40, (0,0,0), cv2.FILLED) # zwarte rand
+         cv2.circle(frame, (590,50), 33, (255,255,255), cv2.FILLED) # witte rand
+         cv2.circle(frame, (590,50), 32, lampkleur, cv2.FILLED) # ingekleurd
 
-         if helmdetectie == True:
-            wait_teller += 1
-
-         if wait_teller >= 100:
-            helmdetectie = False
-            shiftregister = []
-            wait_teller = 0
-            print("POORT SLUIT")
-
-               #mutex.lock()
-               #a = App()
-               #a.colour = "green"
-               #a.changeColour("green")
-               #mutex.unlock()
-
-            #else:
-            #   print("NIET OKEEE")
-               #a = App()
-               #a.changeColour("red")
-
-               #self._mutex.lock()
-               #self.lamp_label.setStyleSheet("background: 'green';")
-               #self._mutex.unlock()
-
-         cv2.rectangle(frame, (0, 0), (100, 20), (0, 0, 0), cv2.FILLED)  # zwarte achtergrond aanmaken voor fps label
+         # fps label
+         cv2.rectangle(frame, (0, 0), (100, 20), (0, 0, 0), cv2.FILLED)  # zwarte achtergrond aanmaken
          fps_label = 'FPS: %.2f' % (1 / (end - start))  # fps label aanmaken
-         cv2.putText(frame, fps_label, (0, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, )  # fps label plotten
-
+         cv2.putText(frame, fps_label, (0, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)  # fps label plotten
 
          if ret:
             self.change_pixmap_signal.emit(frame)
@@ -153,19 +133,6 @@ class App(QWidget):
       self.colour = "red"
       self.startframe()
 
-   def changeColour(self, colour):
-      #self.lamp_label.setStyleSheet("background: " + str(colour) + ";")
-      #self.lamp_label.setText("lsjfmqjsmljqsfjsqml")
-      print("qmlsjfmqsjfmjqfjqsfjq")
-      #self.widgets[1].hide()
-
-      #msg = QMessageBox()
-      #msg.setWindowTitle("OKE")
-      #msg.setText("HELM GEDETECTEERD")
-      #msg.setIcon(QMessageBox.Information)
-      #x = msg._exec()
-
-
    #https://stackoverflow.com/questions/4528347/clear-all-widgets-in-a-layout-in-pyqt
    def clear_widgets(self): # clear alle widgets als in window een nieuw frame wordt geopend
       for widget in self.widgets:
@@ -178,6 +145,7 @@ class App(QWidget):
       self.clear_widgets()
       self.tiny = True
       self.poort = 0
+
       # create a text label
       self.text_label = QLabel("Klik op onderstaande knop om de webcam te openen.\n"
                                "Na enige tijd zal de webcam tevoorschijn komen.\n"
@@ -247,13 +215,6 @@ class App(QWidget):
       self.webcam_label.resize(self.display_width, self.display_height)
       self.widgets["webcam"].append(self.webcam_label)
 
-      # create lampje label
-      self.lamp_label = QLabel("LAMPJE")
-      self.lamp_label.setAlignment(QtCore.Qt.AlignCenter)
-      self.lamp_label.setFixedHeight(50)
-      self.lamp_label.setStyleSheet("background: " + self.colour + ";")
-      self.widgets["text_label"].append(self.lamp_label)
-
       # create close webcam button
       self.close_button = QPushButton("Close Webcam")
       self.close_button.clicked.connect(self.close_webcam)
@@ -261,8 +222,7 @@ class App(QWidget):
 
       # widgets op grid plaatsen
       self.grid.addWidget(self.webcam_label, 0, 0)
-      self.grid.addWidget(self.lamp_label, 1, 0)
-      self.grid.addWidget(self.close_button, 2, 0)
+      self.grid.addWidget(self.close_button, 1, 0)
 
       # threading
       self.videothread = VideoThread(self.tiny, self.poort) # create the video capture thread
