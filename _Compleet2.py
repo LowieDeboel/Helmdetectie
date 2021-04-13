@@ -6,10 +6,9 @@ from time import time
 
 import cv2
 import numpy as np
-from PyQt5 import QtGui, QtCore
-from PyQt5.QtCore import pyqtSignal, pyqtSlot, Qt, QThread, QMutex
-from PyQt5.QtGui import QPixmap, QCursor
-from PyQt5.QtWidgets import QMessageBox, QWidget, QApplication, QLabel, QGridLayout, QPushButton, QRadioButton, QMenuBar, QMenu, QComboBox
+from PyQt5.QtCore import pyqtSignal, pyqtSlot, Qt, QThread
+from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtWidgets import QWidget, QApplication, QLabel, QGridLayout, QPushButton, QRadioButton, QComboBox
 
 
 class VideoThread(QThread):
@@ -25,23 +24,18 @@ class VideoThread(QThread):
    def run(self): # capture from web cam
       cap = cv2.VideoCapture(self.p, cv2.CAP_DSHOW) # self.p = 0 of 1
 
-      # TODO: kleur van 'hoed' veranderen naar dezelfde kleur als hoofd
       # constanten
-      CONFIDENCE_THRESHOLD, NMS_THRESHOLD, COLORS = 0.2, 0.6, [(0, 255, 0), (255, 255, 0), (0, 0, 255)]  # BGR ipv RGB
+      CONFIDENCE_THRESHOLD, NMS_THRESHOLD, COLORS = 0.2, 0.6, [(0, 255, 0), (0, 0, 255), (0, 0, 255)]  # BGR ipv RGB
+      class_names = ['helm', 'hoofd', 'hoofd'] # ['helm', 'hoed', 'hoofd'], hoed wordt ook beschouwd als hoofd (= niet helm)
 
       if self.t:  # parameters van yolov4-tiny toepassen
-         shiftregister_length = 10
-         shiftregister_threshold = 7
-         max_counter = 100
+         shiftregister_length, shiftregister_threshold, max_counter = 10, 7, 100
          weightsPath, configPath = 'training1mrt/yolov4-tiny_training_best.weights', \
                                    'training1mrt/yolov4-tiny_testing.cfg'
       else:  # parameters van gewone yolov4 toepassen
-         shiftregister_length = 7
-         shiftregister_threshold = 5
-         max_counter = 10
+         shiftregister_length, shiftregister_threshold, max_counter = 7, 5, 10
          weightsPath, configPath = 'training1mrt/yolov4_training_best.weights', \
                                    'training1mrt/yolov4_testing.cfg'
-      class_names = ['helm', 'hoed', 'hoofd']
       net = cv2.dnn.readNet(weightsPath, configPath)
       model = cv2.dnn_DetectionModel(net)  # dnn = deep neural network
       model.setInputParams(size=(416, 416), scale=1 / 255)
@@ -73,7 +67,7 @@ class VideoThread(QThread):
          decision = 1 if class_names[helm] == "helm" else 0
 
          # shiftregister beslissingsstructuur
-         if openpoort == False: # poort is gesloten en blijven detecteren
+         if openpoort is False: # poort is gesloten en blijven detecteren
             lampkleur = (0, 0, 255) # rood (BGR)
             shiftregister.append(decision) # shifregister van 0'en en 1'en
             if len(shiftregister) > shiftregister_length:  # max lengte behouden
@@ -84,12 +78,12 @@ class VideoThread(QThread):
             wait_counter += 1
             if wait_counter >= max_counter:  # 5sec poort geopend laten
                print("POORT SLUIT")
-               # reset van alle waarden
+               # reset alle waarden
                openpoort = False
                shiftregister = []
                wait_counter = 0
 
-         if shiftregister.count(1) >= shiftregister_threshold and openpoort == False: # poort openen als er 7 of meer positieve detecties zijn
+         if shiftregister.count(1) >= shiftregister_threshold and openpoort is False: # poort openen als er 7 of meer positieve detecties zijn
             print("OKEEE\nPOORT OPENT")
             openpoort = True
 
@@ -115,28 +109,30 @@ class VideoThread(QThread):
 
 
 
-# TODO: logo toevoegen, layout aanpassen, cursor actie veranderen
+# TODO: layout aanpassen
 class App(QWidget):
    def __init__(self):
       super().__init__()
       self.setWindowTitle("Helm Detectie GUI")
-      self.setGeometry(400, 150, 670, 640)  # positie van window
-      self.display_width, self.display_height =  720, 650# 640, 480
+      self.setGeometry(400, 150, 740, 620)  # positie van window, width + height
+      self.display_width, self.display_height = 720 ,650 # 640, 480
       self.grid = QGridLayout()
       self.setLayout(self.grid)
-      self.widgets = {"text_label": [],
+      self.widgets = {"logo": [],
+                      "title_label": [],
+                      "text_label": [],
                       "webcam": [],
                       "button": [],
                       "radio_button1": [],
                       "radio_button2": [],
-                      "combobox": []}
-      self.colour = "red"
+                      "combobox": [],
+                      "close_button": []}
       self.startframe()
 
    #https://stackoverflow.com/questions/4528347/clear-all-widgets-in-a-layout-in-pyqt
    def clear_widgets(self): # clear alle widgets als in window een nieuw frame wordt geopend
       for widget in self.widgets:
-         if self.widgets[widget] != []:
+         if self.widgets[widget]: # als self.widgets niet leeg is
             self.widgets[widget][-1].hide()
          for i in range(0, len(self.widgets[widget])):
             self.widgets[widget].pop()
@@ -146,12 +142,26 @@ class App(QWidget):
       self.tiny = True
       self.poort = 0
 
+      # create a logo label
+      self.image = QPixmap("logokuleuven.png")
+      self.image = self.image.scaledToWidth(200)
+      self.logo = QLabel()
+      self.logo.setPixmap(self.image)
+      self.logo.setAlignment(Qt.AlignLeft)
+      self.widgets["logo"].append(self.logo)
+
+      # create a title label
+      self.title_label = QLabel("Helmdetectie")
+      self.title_label.setAlignment(Qt.AlignLeft)
+      self.title_label.setStyleSheet("font-size: 65px; font-family: 'shanti';")
+      self.widgets["title_label"].append(self.title_label)
+
       # create a text label
-      self.text_label = QLabel("Klik op onderstaande knop om de webcam te openen.\n"
-                               "Na enige tijd zal de webcam tevoorschijn komen.\n"
+      self.text_label = QLabel("Klik op onderstaande knop om de webcam te openen. " +
+                               "Na enige tijd zal de webcam tevoorschijn komen. " +
                                "Druk vervolgens terug op de knop om de webcam te sluiten.")
-      self.text_label.setAlignment(QtCore.Qt.AlignCenter)
-      #self.text_label.setWordWrap(True)  # verandert te lange strings naar meerdere lijnen
+      self.text_label.setAlignment(Qt.AlignHCenter)
+      self.text_label.setWordWrap(True)  # verandert te lange strings naar meerdere lijnen
       self.widgets["text_label"].append(self.text_label)
       #self.text_label.setFixedHeight(300)
       #self.text_label.setStyleSheet("background: '#64A314';")
@@ -169,7 +179,6 @@ class App(QWidget):
 
       # create radio buttons
       self.radiobutton1 = QRadioButton("Tiny")
-      #self.radiobutton1.setChecked(False)
       self.radiobutton1.setChecked(True)
       self.radiobutton1.tiny = True
       self.radiobutton1.toggled.connect(self.onClicked)
@@ -185,12 +194,20 @@ class App(QWidget):
       self.webcam_button.clicked.connect(self.webcamframe)
       self.widgets["button"].append(self.webcam_button)
 
+      # create a close button
+      self.close_button = QPushButton("Close")
+      self.close_button.clicked.connect(self.close_app)
+      self.widgets["close_button"].append(self.close_button)
+
       # widgets op grid plaatsen
-      self.grid.addWidget(self.text_label, 0, 0)
-      self.grid.addWidget(self.radiobutton1, 1, 0)
-      self.grid.addWidget(self.radiobutton2, 2, 0)
-      self.grid.addWidget(self.combobox, 3, 0)
-      self.grid.addWidget(self.webcam_button, 4, 0)
+      self.grid.addWidget(self.logo, 0, 0)
+      self.grid.addWidget(self.title_label, 0, 1, 1, 2)
+      self.grid.addWidget(self.text_label, 1, 0, 1, 3)
+      self.grid.addWidget(self.radiobutton1, 2, 0, 1, 3)
+      self.grid.addWidget(self.radiobutton2, 3, 0, 1, 3)
+      self.grid.addWidget(self.combobox, 4, 0, 1, 3)
+      self.grid.addWidget(self.webcam_button, 5, 0, 1, 3)
+      self.grid.addWidget(self.close_button, 6, 0, 1, 3)
 
    def selectionchange(self, i):
       self.poort = i
@@ -207,6 +224,9 @@ class App(QWidget):
          self.tiny = self.radiobutton.tiny
          #print("onclicked: ", self.tiny)
 
+   def close_app(self):
+      self.close()
+
 
    def webcamframe(self):
       self.clear_widgets()
@@ -215,14 +235,14 @@ class App(QWidget):
       self.webcam_label.resize(self.display_width, self.display_height)
       self.widgets["webcam"].append(self.webcam_label)
 
-      # create close webcam button
-      self.close_button = QPushButton("Close Webcam")
-      self.close_button.clicked.connect(self.close_webcam)
-      self.widgets["button"].append(self.close_button)
+      # create an exit webcam button
+      self.exit_button = QPushButton("Close Webcam")
+      self.exit_button.clicked.connect(self.close_webcam)
+      self.widgets["button"].append(self.exit_button)
 
       # widgets op grid plaatsen
       self.grid.addWidget(self.webcam_label, 0, 0)
-      self.grid.addWidget(self.close_button, 1, 0)
+      self.grid.addWidget(self.exit_button, 1, 0)
 
       # threading
       self.videothread = VideoThread(self.tiny, self.poort) # create the video capture thread
@@ -245,7 +265,7 @@ class App(QWidget):
       rgb_image = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
       h, w, ch = rgb_image.shape
       bytes_per_line = ch * w
-      convert_to_Qt_format = QtGui.QImage(rgb_image.data, w, h, bytes_per_line, QtGui.QImage.Format_RGB888)
+      convert_to_Qt_format = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
       p = convert_to_Qt_format.scaled(self.display_width, self.display_height, Qt.KeepAspectRatio)
       return QPixmap.fromImage(p)
 
