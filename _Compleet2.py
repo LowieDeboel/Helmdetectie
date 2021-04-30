@@ -7,7 +7,7 @@ from time import time
 import cv2
 import numpy as np
 from PyQt5.QtCore import pyqtSignal, pyqtSlot, Qt, QThread
-from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtGui import QPixmap, QImage, QIcon
 from PyQt5.QtWidgets import QWidget, QApplication, QLabel, QGridLayout, QPushButton, QRadioButton, QComboBox
 
 
@@ -127,6 +127,7 @@ class App(QWidget):
                       "radio_button2": [],
                       "combobox": [],
                       "close_button": []}
+      self.setWindowIcon(QIcon('helm.png'))
       self.startframe()
 
    #https://stackoverflow.com/questions/4528347/clear-all-widgets-in-a-layout-in-pyqt
@@ -153,15 +154,15 @@ class App(QWidget):
       # create a title label
       self.title_label = QLabel("Helmdetectie")
       self.title_label.setAlignment(Qt.AlignLeft)
-      self.title_label.setStyleSheet("font-size: 65px; font-family: 'shanti';")
+      self.title_label.setStyleSheet("font-size: 70px; font-family: 'helvetica'; font-weight : 500;")
       self.widgets["title_label"].append(self.title_label)
 
       # create a text label
-      self.text_label = QLabel("Klik op onderstaande knop om de webcam te openen. " +
-                               "Na enige tijd zal de webcam tevoorschijn komen. " +
-                               "Druk vervolgens terug op de knop om de webcam te sluiten.")
-      self.text_label.setAlignment(Qt.AlignHCenter)
+      self.text_label = QLabel("INSTRUCTIES:\n1) Bepaal welke methode u wilt gebruiken.\n*Tiny: Snel maar minder accuraat.\n*Normal: Traag maar heel accuraat.\n\n2) Bepaal welke webcam u wilt besturen.\n*Poort 0: Ingebouwde webcam.\n*Poort 1: Externe webcam via USB.")
+      # "Klik op onderstaande knop om de webcam te openen. "+"Na enige tijd zal de webcam tevoorschijn komen. "+"Druk vervolgens terug op de knop om de webcam te sluiten."
+      self.text_label.setAlignment(Qt.AlignTop)
       self.text_label.setWordWrap(True)  # verandert te lange strings naar meerdere lijnen
+      self.text_label.setStyleSheet("font-size: 20px; font-family: 'shanti'; margin-left: 10px; margin-bottom: 80px;")
       self.widgets["text_label"].append(self.text_label)
       #self.text_label.setFixedHeight(300)
       #self.text_label.setStyleSheet("background: '#64A314';")
@@ -241,8 +242,8 @@ class App(QWidget):
       self.widgets["button"].append(self.exit_button)
 
       # widgets op grid plaatsen
-      self.grid.addWidget(self.webcam_label, 0, 0)
-      self.grid.addWidget(self.exit_button, 1, 0)
+      self.grid.addWidget(self.webcam_label, 0, 0, 1, 3)
+      self.grid.addWidget(self.exit_button, 1, 0, 1, 3)
 
       # threading
       self.videothread = VideoThread(self.tiny, self.poort) # create the video capture thread
